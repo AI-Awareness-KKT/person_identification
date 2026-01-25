@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Person Identification</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        body {
+            background: #0f2027;
+            color: white;
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+
+        h1 {
+            margin-top: 20px;
+        }
+
+        video {
+            display: none; /* HIDE RAW CAMERA */
+        }
+
+        canvas {
+            margin-top: 20px;
+            border-radius: 12px;
+            border: 2px solid #4ade80;
+        }
+        .logo-container {
+    width: 100%;
+    text-align: center;
+    padding: 10px 0;
+}
+
+.logo-container img {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+}
+
+    </style>
+</head>
+<body>
+    <!-- LOGO HEADER -->
+<div class="logo-container">
+    <img src="{{ url_for('static', filename='logo.jpg') }}" alt="Project Logo">
+</div>
+
+
+<h1>Live Person Identification (Age & Gender)</h1>
+
+<!-- Hidden video source -->
+<video id="video" width="640" height="480" autoplay></video>
+
+<!-- Visible processed output -->
+<canvas id="canvas" width="640" height="480"></canvas>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let lastDetections = [];   // 🔥 CACHE (prevents blinking)
+
+// Start camera
+navigator.mediaDevices.getUserMedia({ video: true })
+.then(stream => video.srcObject = stream);
+
+// Analyze frames
+async function analyzeFrame() {
+    // Draw live frame
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const image = canvas.toDataURL("image/jpeg");
+
+    try {
+        const res = await fetch("/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image })
+        });
+
+        const detections = await res.json();
+
+        // 🔥 Update cache ONLY if detections exist
+        if (detections.length > 0) {
+            lastDetections = detections;
+        }
+    } catch (e) {
+        console.log("Server delay, using cached detections");
+    }
+
+    // Redraw frame
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    // 🔥 Draw cached detections (NO BLINK)
+    lastDetections.forEach(d => {
+        // Bounding box
+        ctx.strokeStyle = "#00ff00";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(d.x1, d.y1, d.x2 - d.x1, d.y2 - d.y1);
+
+        // Label text
+        const label = `Age: ${d.age} | ${d.gender}`;
+
+        ctx.font = "bold 18px Arial";   // 🔥 BIG FONT
+        ctx.fillStyle = "#00ff00";
+
+        // Text background
+        const textWidth = ctx.measureText(label).width;
+        ctx.fillRect(d.x1, d.y1 - 26, textWidth + 10, 24);
+
+        // Text
+        ctx.fillStyle = "#000000";
+        ctx.fillText(label, d.x1 + 5, d.y1 - 8);
+    });
+}
+
+// Run AI once per second (smooth + stable)
+setInterval(analyzeFrame, 1000);
+</script>
+
+
+</body>
+</html>
